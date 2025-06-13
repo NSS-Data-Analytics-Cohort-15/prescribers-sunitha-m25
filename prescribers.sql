@@ -26,26 +26,25 @@ FROM prescription
 INNER JOIN prescriber USING(npi)
 GROUP BY specialty_description
 ORDER BY total_claims DESC
-LIMIT 10;
+LIMIT 1;
 
 --Q2b. Which specialty had the most total number of claims for opioids?
-SELECT
-	specialty_description
-	, SUM(total_claim_count) AS total_claims
-FROM prescription
-INNER JOIN prescriber USING(npi)
-WHERE drug_name IN (SELECT drug_name FROM drug GROUP BY drug_name HAVING MAX(opioid_drug_flag) = 'Y')
+SELECT specialty_description,SUM(total_claim_count) AS total_claims
+FROM prescriber
+JOIN prescription USING(npi)
+WHERE drug_name IN(SELECT drug_name FROM drug WHERE opioid_drug_flag = 'Y' )
 GROUP BY specialty_description
 ORDER BY total_claims DESC
-LIMIT 10;
+LIMIT 1;
 
 --Q2c. **Challenge Question:** Are there any specialties that appear in the prescriber table that have no associated 
 --prescriptions in the prescription table?
-SELECT DISTINCT specialty_description FROM prescriber
+SELECT DISTINCT specialty_description 
+FROM prescriber
 EXCEPT 
 	SELECT DISTINCT specialty_description
 	FROM prescriber
-	LEFT JOIN prescription USING(npi)
+	JOIN prescription USING(npi)
 	WHERE drug_name IS NOT NULL;
 
 --alternative:
@@ -67,20 +66,20 @@ INNER JOIN drug AS d USING (drug_name)
 INNER JOIN prescriber AS p2 ON p1.npi = p2.npi
 
 --Q3a. Which drug (generic_name) had the highest total drug cost?
-SELECT generic_name,max(total_drug_cost) as drug_cost
+SELECT generic_name,MAX(total_drug_cost) AS drug_cost
 FROM prescription
-JOIN drug using(drug_name)
+JOIN drug USING(drug_name)
 GROUP BY generic_name
-ORDER BY 2 desc;
+ORDER BY 2 DESC;
 
 --Q3 b. Which drug (generic_name) has the hightest total cost per day? **Bonus: Round your cost per day column to 2 decimal 
 --places. Google ROUND to see how this works.**
 
-SELECT generic_name, max(round((total_drug_cost/total_day_supply),2)) as cost_per_day
+SELECT generic_name, MAX(round((total_drug_cost/total_day_supply),2)) AS cost_per_day
 FROM prescription
-JOIN drug using (drug_name)
+JOIN drug USING (drug_name)
 GROUP BY generic_name
-ORDER BY 2 desc
+ORDER BY 2 DESC
 LIMIT 1;
 
 SELECT
@@ -150,14 +149,16 @@ ORDER BY population DESC;
 --total_claim_count.
 SELECT
 	drug_name
-	, total_claim_count
+	, COUNT(total_claim_count)
 FROM prescription
 WHERE total_claim_count >= 3000
-ORDER BY total_claim_count DESC;
+GROUP BY drug_name
+ORDER BY COUNT(total_claim_count) DESC;
 
 --Q6 b. For each instance that you found in part a, add a column that indicates whether the drug is an opioid.
-WITH opioid_cte AS (		--cte to display drugs only once.  For ones that are opioids and listed as Y and N, it will be Y.
-			    SELECT drug_name,
+
+WITH opioid_cte AS (--cte to display drugs only once.  For ones that are opioids and listed as Y and N, it will be Y.		
+                   SELECT drug_name,
 			        MAX(opioid_drug_flag) AS opioid_flag
 			    FROM drug
 				GROUP BY drug_name
@@ -196,45 +197,33 @@ ORDER BY total_claim_count DESC
 --Management) in the city of Nashville (nppes_provider_city = 'NASHVILLE'), where the drug is an opioid (opiod_drug_flag =
 --'Y'). **Warning:** Double-check your query before running it. You will only need to use the prescriber and drug tables 
 --since you don't need the claims numbers yet.
-WITH opioid_cte AS (		--cte to display drugs only once.  For ones that are opioids and listed as Y and N, it will be Y.
-			    SELECT drug_name,
-			        MAX(opioid_drug_flag) AS opioid_flag
-			    FROM drug
-				GROUP BY drug_name
-)
-SELECT npi, drug_name
-FROM prescriber
-CROSS JOIN opioid_cte
-WHERE specialty_description = 'Pain Management' AND nppes_provider_city = 'NASHVILLE' AND opioid_flag = 'Y';
+SELECT npi,drug_name
+FROM prescriber 
+CROSS JOIN drug 
+WHERE specialty_description = 'Pain Management' AND nppes_provider_city = 'NASHVILLE' AND opioid_drug_flag = 'Y';
+
 
 --Q7b. Next, report the number of claims per drug per prescriber. Be sure to include all combinations, whether or not the 
 --prescriber had any claims. You should report the npi, the drug name, and the number of claims (total_claim_count).
-WITH opioid_cte AS (		--cte to display drugs only once.  For ones that are opioids and listed as Y and N, it will be Y.
-			    SELECT drug_name,
-			        MAX(opioid_drug_flag) AS opioid_flag
-			    FROM drug
-				GROUP BY drug_name
-)
-SELECT npi, drug_name, total_claim_count
-FROM prescriber
-CROSS JOIN opioid_cte
-LEFT JOIN prescription USING(npi,drug_name)
-WHERE specialty_description = 'Pain Management' AND nppes_provider_city = 'NASHVILLE' AND opioid_flag = 'Y';
+SELECT p1.npi, d.drug_name,p2.total_claim_count AS total_claim
+FROM prescriber AS p1
+CROSS JOIN drug d
+LEFT JOIN prescription p2 ON p1.npi = p2.npi 
+						  AND d.drug_name = p2.drug_name
+WHERE p1.specialty_description = 'Pain Management'AND p1.nppes_provider_city = 'NASHVILLE'
+     AND d.opioid_drug_flag = 'Y'
+ORDER BY p1.npi, d.drug_name;
 
 --Q7c. Finally, if you have not done so already, fill in any missing values for total_claim_count with 0. Hint - Google the 
 --COALESCE function.
-WITH opioid_cte AS (		--cte to display drugs only once.  For ones that are opioids and listed as Y and N, it will be Y.
-			    SELECT drug_name,
-			        MAX(opioid_drug_flag) AS opioid_flag
-			    FROM drug
-				GROUP BY drug_name
-)
-SELECT npi, drug_name, COALESCE(total_claim_count, 0) AS total_claims
-FROM prescriber
-CROSS JOIN opioid_cte
-LEFT JOIN prescription USING(npi,drug_name)
-WHERE specialty_description = 'Pain Management' AND nppes_provider_city = 'NASHVILLE' AND opioid_flag = 'Y'
-ORDER BY total_claims DESC;
+SELECT p1.npi, d.drug_name,COALESCE(p2.total_claim_count,0) AS total_claim
+FROM prescriber AS p1
+CROSS JOIN drug d
+LEFT JOIN prescription p2 ON p1.npi = p2.npi 
+						  AND d.drug_name = p2.drug_name
+WHERE p1.specialty_description = 'Pain Management'AND p1.nppes_provider_city = 'NASHVILLE'
+     AND d.opioid_drug_flag = 'Y'
+ORDER BY p1.npi, d.drug_name;
 
 
 
