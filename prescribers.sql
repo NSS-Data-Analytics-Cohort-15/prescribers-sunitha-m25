@@ -47,14 +47,6 @@ EXCEPT
 	JOIN prescription USING(npi)
 	WHERE drug_name IS NOT NULL;
 
---alternative:
-SELECT specialty_description
-FROM prescriber AS p1
-LEFT JOIN prescription AS p2 ON p1.npi = p2.npi
-GROUP BY specialty_description
-HAVING MIN(p2.npi) IS NULL
-ORDER BY specialty_description;
-
 --Q2d. **Difficult Bonus:** *Do not attempt until you have solved all other problems!* For each specialty, report the 
 --percentage of total claims by that specialty which are for opioids. Which specialties have a high percentage of opioids?
 SELECT 
@@ -103,22 +95,11 @@ GROUP BY drug_name, drug_type;
 
 --Q4b. Building off of the query you wrote for part a, determine whether more was spent (total_drug_cost) on opioids or on 
 --antibiotics. Hint: Format the total costs as MONEY for easier comparision.
-WITH drugs AS (
-		SELECT
-			drug_name
-			, (CASE WHEN MAX(opioid_drug_flag) = 'Y' THEN 'opioid'
-					WHEN MAX(antibiotic_drug_flag) = 'Y' THEN 'antibiotic'
-					ELSE 'neither' END)
-				AS drug_type
-		FROM drug
-		GROUP BY drug_name
-		)
---
 SELECT
-	SUM(CASE WHEN drug_type = 'opioid' THEN total_drug_cost END)::money AS total_spent_on_opioids
-	, SUM(CASE WHEN drug_type = 'antibiotic' THEN total_drug_cost END)::money AS total_spent_on_antibiotics
-FROM prescription
-INNER JOIN drugs USING (drug_name);
+    SUM(CASE WHEN d.opioid_drug_flag = 'Y' THEN p.total_drug_cost END) AS opioid_cost,
+    SUM(CASE WHEN d.antibiotic_drug_flag = 'Y' THEN p.total_drug_cost END) AS antibiotic_cost
+FROM drug AS d
+LEFT JOIN prescription AS p USING(drug_name)
 
 --Q5 a. How many CBSAs are in Tennessee? **Warning:** The cbsa table contains information for all states, not just Tennessee.
 SELECT DISTINCT cbsa, cbsaname FROM cbsa WHERE cbsaname LIKE '%TN%';
@@ -157,39 +138,23 @@ ORDER BY COUNT(total_claim_count) DESC;
 
 --Q6 b. For each instance that you found in part a, add a column that indicates whether the drug is an opioid.
 
-WITH opioid_cte AS (--cte to display drugs only once.  For ones that are opioids and listed as Y and N, it will be Y.		
-                   SELECT drug_name,
-			        MAX(opioid_drug_flag) AS opioid_flag
-			    FROM drug
-				GROUP BY drug_name
-)
-SELECT
-	drug_name
-	, total_claim_count
-	, opioid_flag
-FROM prescription
-INNER JOIN opioid_cte USING(drug_name)
-WHERE total_claim_count >= 3000
-ORDER BY total_claim_count DESC;
+SELECT p1.drug_name,SUM(p1.total_claim_count),
+		CASE WHEN opioid_drug_flag='Y' THEN 'opioid' ELSE 'no opioid' END
+FROM prescription AS p1
+INNER JOIN drug AS d ON d.drug_name=p1.drug_name
+WHERE p1.total_claim_count >=3000
+GROUP BY p1.drug_name,p1.total_claim_count,opioid_drug_flag;
 
 --Q6c. Add another column to you answer from the previous part which gives the prescriber first and last name associated with --each row.
-WITH opioid_cte AS (		--cte to display drugs only once.  For ones that are opioids and listed as Y and N, it will be Y.
-			    SELECT drug_name,
-			        MAX(opioid_drug_flag) AS opioid_flag
-			    FROM drug
-				GROUP BY drug_name
-)
-SELECT
-	drug_name
-	, total_claim_count
-	, opioid_flag
-	, nppes_provider_last_org_name
-	, nppes_provider_first_name
-FROM prescription
-INNER JOIN opioid_cte USING(drug_name)
-INNER JOIN prescriber USING(npi)
-WHERE total_claim_count >= 3000
-ORDER BY total_claim_count DESC
+SELECT p1.drug_name,SUM(p1.total_claim_count),
+		CASE WHEN opioid_drug_flag='Y' THEN 'opioid' ELSE 'no opioid' END,
+		nppes_provider_first_name,nppes_provider_last_org_name
+FROM prescription AS p1
+INNER JOIN drug AS d ON d.drug_name=p1.drug_name
+LEFT JOIN prescriber AS p2 on p1.npi=p2.npi
+WHERE p1.total_claim_count >=3000
+GROUP BY p1.drug_name,p1.total_claim_count,opioid_drug_flag,
+		nppes_provider_first_name,nppes_provider_last_org_name;
 
 --Q7The goal of this exercise is to generate a full list of all pain management specialists in Nashville and the number of claims they had for each opioid. **Hint:** The results from all 3 parts will have 637 rows.
 
